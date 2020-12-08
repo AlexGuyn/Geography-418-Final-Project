@@ -1,0 +1,619 @@
+#Libraries
+library(spgwr)
+library(spatstat)
+library(tmap)
+library(gstat)
+library(sf)
+library(raster)
+library(rgdal)
+library(e1071)
+library(spdep)
+library("gtable")
+library("rgdal")
+library("tidyverse")
+library("lubridate")
+library("e1071")
+library("gtable")
+library("gridExtra")
+library("maps")
+library("grid")
+library("ggplot2")
+library("dplyr")
+library("bcmaps")
+library("tmap")
+library("fBasics")
+library('bcmapsdata', repos='https://bcgov.github.io/drat/')
+library("raster")
+library("maps")
+library("tmap")
+library("rgeos")
+library(raster)
+library(rgdal)
+library(tmap)
+library(spdep)
+library(raster)
+library(shinyjs)
+install.packages("gtable")
+#Set working directory
+dir <-  "C:/Users/alexg/Documents/R/FINAL PROJECT Alex Guyn"
+setwd(dir)
+
+#Reading in particulate matter dataset
+#Read in PM2.5 data:
+pm2.5 <- readOGR(dsn = ".", layer = "Pm25Sample") 
+pm2.5 <- spTransform(pm2.5, CRS("+init=epsg:26910"))
+head(pm2.5)
+#Reading in dissemination tract and income data
+#Read in census income data:
+income <- read.csv("./Income.csv")  
+#Select only ID and Income columns:
+colnames(income) <- c("DAUID", "Income") 
+#Read in dissemination tract shapefile:
+census.tracts <- readOGR(dsn = ".", layer = "BC_DA") 
+#Merge income and dissemination data:
+income.tracts <- merge(census.tracts,income, by = "DAUID") 
+#Determine the number of columns in the dataframe:
+nrow(income.tracts)
+nrow(income)
+#Remove NA values:
+income.tracts <- income.tracts[!is.na(income.tracts$Income),]
+#Reproject the data:
+income.tracts <- spTransform(income.tracts, CRS("+init=epsg:26910"))
+
+#Create choropleth map of income/study area: 
+map_Income <- tm_shape(income.tracts) +
+  tm_polygons(col = "Income",
+              title = "Median Income (yearly)",
+              style = "jenks",
+              palette = "viridis", n = 6) +
+  tm_shape(pm2.5) +
+  tm_dots(col="PM25", palette = "-RdBu", 
+          title="Sampled pm25 \n(in ppm)", size=0.1) + 
+  tm_layout(panel.labels = "Metro Vancouver study site",
+            legend.text.size = 1, legend.title.size = 1)+
+  tm_legend(legend.outside=TRUE)+
+tm_compass(position=c("right", "top"))+
+  tm_scale_bar(position = c("left", "bottom"))
+
+
+map_Income
+
+###Map of study area
+map_studyarea <- tm_shape(income.tracts) +
+  tm_polygons(col = "DAUID",
+              ) +
+  tm_legend(legend.position = c("LEFT", "BOTTOM"))
+
+map_studyarea 
+
+#Create a grid called grd to use in your interpolation
+# Create an empty grid where n is the total number of cells
+grd <- as.data.frame(spsample(pm2.5, "regular", n=5000))
+names(grd)       <- c("X", "Y")
+coordinates(grd) <- c("X", "Y")
+# Create SpatialPixel object:
+gridded(grd)     <- TRUE  
+# Create SpatialGrid object:
+fullgrid(grd)    <- TRUE  
+#Reproject the grid:
+proj4string(grd) <- proj4string(income.tracts)
+
+##############Descriptive Stats
+range(income.tracts$Income, na.rm = TRUE)####???
+meanIncome <- mean(income.tracts$Income, na.rm = TRUE)
+sdIncome <- sd(income.tracts$Income, na.rm = TRUE)
+modeIncome <- as.numeric(names(sort(table(income.tracts$Income), decreasing = TRUE))[1])
+medIncome <- median(income.tracts$Income, na.rm = TRUE)
+skewIncome <- skewness(income.tracts$Income, na.rm = TRUE) [1]
+kurtIncome <- kurtosis(income.tracts$Income, na.rm = TRUE) [1]
+CoVIncome <- (sdIncome / meanIncome) * 100
+normIncome_PVAL <- shapiro.test(income.tracts$Income)$p.value
+
+meanPm2.5 <- mean(pm2.5$PM25, na.rm = TRUE)
+sdPm2.5 <- sd(pm2.5$PM25, na.rm = TRUE)
+modePm2.5 <- as.numeric(names(sort(table(pm2.5$PM25), decreasing = TRUE))[1])
+medPm2.5 <- median(pm2.5$PM25, na.rm = TRUE)
+skewPm2.5 <- skewness(pm2.5$PM25, na.rm = TRUE) [1]
+kurtPm2.5 <- kurtosis(pm2.5$PM25, na.rm = TRUE) [1]
+CoVPm2.5 <- (sdPm2.5 / meanPm2.5) * 100
+normPm2.5_PVAL <- shapiro.test(pm2.5$PM25)$p.value
+
+samples = c("Income", "PM2.5")
+means = c(meanIncome, meanPm2.5)
+sd = c(sdIncome, sdPm2.5)
+median = c(medIncome, medPm2.5)
+mode <- c(modeIncome, modePm2.5)
+skewness <- c(skewIncome, skewPm2.5)
+kurtosis <- c(kurtIncome, kurtPm2.5) #Create an object for the kurtosis
+CoV <- c(CoVIncome, CoVPm2.5) #Create an object for the CoV
+normality <- c(normIncome_PVAL, normPm2.5_PVAL) #Create an object for the normality PVALUE
+means 
+
+##Check table values for sigfigs?
+means <- round(means,3)
+sd  <- round(sd,3)
+median <- round(median,3)
+mode <- round(mode,3)
+skewness <- round(skewness,3)
+kurtosis <- round(kurtosis,3)
+CoV <- round(CoV,3)
+normality <- signif(normality, digits = 3)
+CoV
+data.for.table1 = data.frame(samples, means, median, mode, sd)
+data.for.table2 = data.frame(samples, skewness, kurtosis, CoV, normality)
+
+table1 <- tableGrob(data.for.table1, rows = c("",""))
+t1Caption <- textGrob("Table 1: Income vs. PM2.5 descriptive statistics", gp = gpar(fontsize= 09))
+padding <- unit(5, "mm")
+table1 <- gtable_add_rows(table1,
+                          heights = grobHeight(t1Caption) + padding, 
+                          pos = 0)
+table1 <- gtable_add_grob(table1,
+                          t1Caption, t = 1, l = 2, r = ncol(data.for.table1) + 1)
+
+table2 <- tableGrob(data.for.table2, rows = c("",""))
+t2Caption <- textGrob("Table 2:  Income vs. PM2.5 descriptive statistics continued", gp = gpar(fontsize= 09))
+padding <- unit(5, "mm")
+table2 <- gtable_add_rows(table2,
+                          heights = grobHeight(t2Caption) + padding,
+                          pos = 0)
+table2 <- gtable_add_grob(table2,
+                          t2Caption, t = 1, l = 2, r = ncol(data.for.table2) + 1)
+
+grid.arrange(table1, newpage = TRUE)
+grid.arrange(table2, newpage = TRUE)
+
+##### Histograms
+hist(income.tracts$Income, breaks = 60, main = "Dissemination level census median income, Vancouver BC, 2016", xlab = " Yearly Income ($)") #Base R style
+
+hist(pm2.5$PM25, breaks = 30, main = "PM2.5 concentrations distribution across Vancouver BC, 2016", xlab = "PM2.5 ppm") #Base R style
+dev.off()
+
+##### Spatial segment of income (Global and local Morans I)- Lab 3
+income.nb <- poly2nb(income.tracts)
+income.net <- nb2lines(income.nb, coords=coordinates(income.tracts))
+crs(income.net) <- crs(income.tracts)
+
+tm_shape(income.tracts) + tm_borders(col='lightgrey') + 
+  tm_shape(income.net) + tm_lines(col='red')
+
+#Create and print weight matrix object
+
+income.lw <- nb2listw(income.nb, zero.policy = TRUE, style = "W")
+print.listw(income.lw, zero.policy = TRUE)
+
+##Global Morans I
+mi <- moran.test(income.tracts$Income, income.lw, zero.policy = TRUE)
+mi
+ #Morans Range?
+
+moran.range <- function(lw) {
+  wmat <- listw2mat(lw)
+  return(range(eigen((wmat + t(wmat))/2)$values))
+}
+moran.range(income.lw)
+
+
+
+
+mI <- mi$estimate[[1]]
+eI <- mi$estimate[[2]]
+var <- mi$estimate[[3]]
+
+z <- (mI- eI)/sqrt(var)
+#Local Morans
+lisa.test <- localmoran(income.tracts$Income, income.lw, zero.policy = TRUE)
+
+income.tracts$Ii <- lisa.test[,1]
+income.tracts$E.Ii<- lisa.test[,2]
+income.tracts$Var.Ii<- lisa.test[,3]
+income.tracts$Z.Ii<- lisa.test[,4]
+income.tracts$P<- lisa.test[,5]
+
+map_LISA <- tm_shape(income.tracts) + 
+  tm_polygons(col = "Z.Ii", 
+              title = "Z scores", 
+              style = "fixed", breaks = c(-Inf,-1.96,0,1.96,Inf),
+              palette = "RdYlGn",auto.palette.mapping=FALSE, midpoint = NA, n=4)+
+  tm_layout(panel.labels = "Census Tract Income significant Local Moran's I, Metro Vancouver, BC",
+            legend.text.size = 1, legend.title.size = 1)+
+  tm_compass(position=c("right", "top"))+
+  tm_scale_bar(position = c("left", "bottom"))
+
+map_LISA
+
+
+######Spatial interpolation of PM2.5 Data
+
+
+
+
+
+##Spatial Interpolation with IDW
+
+# Create an empty grid where n is the total number of cells- Already done
+
+#IDW Interpolation
+P.idw <- gstat::idw(PM25 ~ 1, pm2.5, newdata=grd, idp=5)
+r.idw2       <- raster(P.idw)
+r.m.idw     <- mask(r.idw, income.tracts )
+
+IDWmap <- tm_shape(r.m.idw) + 
+  tm_raster(n=10,palette = "-RdBu",
+            title="Predicted pm2.5 \n(in ppm)") + 
+  tm_layout(inner.margins = 0.1)+
+  tm_shape(pm2.5) + tm_dots(size=0.2) +
+  tm_legend(legend.outside=TRUE)
+IDWmap
+
+#################################################
+# Leave-one-out validation routine####
+IDW.out <- vector(length = length(pm2.5))
+for (i in 1:length(pm2.5)) {
+  IDW.out[i] <- idw(PM25 ~ 1, pm2.5[-i,], pm2.5[i,], idp=5)$var1.pred
+}
+
+# Plot the differences
+OP <- par(pty="s", mar=c(4,3,0,0))
+plot(IDW.out ~ pm2.5$PM25, asp=1, xlab="Observed", ylab="Predicted", pch=16,
+     col=rgb(0,0,0,0.5))
+abline(lm(IDW.out ~ pm2.5$PM25), col="red", lw=2,lty=2)
+abline(0,1)
+par(OP)
+sqrt( sum((IDW.out - pm2.5$PM25)^2) / length(pm2.5))
+
+
+#################################################
+# Implementation of a jackknife technique to estimate a confidence interval at each unsampled point.
+# Create the interpolated surface
+img <- gstat::idw(PM25 ~ 1, pm2.5, newdata=grd, idp=5)
+n   <- length(pm2.5)
+Zi  <- matrix(nrow = length(img$var1.pred), ncol = n)
+
+# Remove a point then interpolate (do this n times for each point)
+st <- stack()
+for (i in 1:n){
+  Z1 <- gstat::idw(PM25 ~ 1, pm2.5[-i,], newdata=grd, idp=5)
+  st <- addLayer(st,raster(Z1,layer=1))
+  # Calculated pseudo-value Z at j
+  Zi[,i] <- n * img$var1.pred - (n-1) * Z1$var1.pred
+}
+
+# Jackknife estimator of parameter Z at location j
+Zj <- as.matrix(apply(Zi, 1, sum, na.rm=T) / n )
+
+# Compute (Zi* - Zj)^2
+c1 <- apply(Zi,2,'-',Zj)            # Compute the difference
+c1 <- apply(c1^2, 1, sum, na.rm=T ) # Sum the square of the difference
+
+# Compute the confidence interval
+CI <- sqrt( 1/(n*(n-1)) * c1)
+
+# Create (CI / interpolated value) raster
+img.sig   <- img
+img.sig$v <- CI /img$var1.pred 
+
+# Clip the confidence raster to Vancouver study site
+r <- raster(img.sig, layer="v") # RENAME?
+r.m <- mask(r,income.tracts)
+
+
+# Plot the map #use r.m
+IDWmap2 <- tm_shape(r.m) + tm_raster(,title="PM2.5 data 95% confidence interval \n(in ppm)") +
+  tm_layout(inner.margins = 0.1)+
+  tm_shape(pm2.5) + tm_dots(size=0.2) +
+  tm_legend(legend.outside=TRUE)
+IDWmap2
+
+#r.m.idw vs r.m ????????
+##### Second method with r.m
+IDWmap3 <- tm_shape(r.m) + tm_raster(style = "fixed",
+                                     auto.palette.mapping = FALSE,
+                                     palette = "-RdBu", breaks = c(0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, Inf),,title="PM2.5 data 95% confidence interval \n(in ppm)") +
+  tm_layout(inner.margins = 0.1)+
+  tm_shape(pm2.5) + tm_dots(size=0.2) +
+  tm_legend(legend.outside=TRUE)
+IDWmap3
+#Play around with and try to get to make sense!
+
+
+
+
+
+
+
+#######Point pattern analysis- lab 2- Analysis of sampling structure of the points
+
+#intersect the two datasets
+VanPm25points <- raster::intersect(pm2.5, income.tracts)
+
+
+#convert the pm2.5 data type to factor # Necessary?
+VanPm25points@data$TYPE <- as.factor(VanPm25points@data$TYPE)
+levels(VanPm25points$TYPE)
+
+
+kma <- pm2.5 
+
+kma$x <- coordinates(kma)[,1]
+kma$y <- coordinates(kma)[,2]
+ ######Create PPP object
+
+#check for and remove duplicated points
+#first, finds zero distance among points to see if there are any duplicates
+zd <- zerodist(kma)
+zd
+
+#if there are duplicates, remove them
+kma <- remove.duplicates(kma)
+
+#create an "extent" object which can be used to create the observation window for spatstat
+kma.ext <- as.matrix(extent(kma)) # Should extent be income.tracks?
+
+#observation window
+window <- as.owin(list(xrange = kma.ext[1,], yrange = kma.ext[2,]))
+
+#create ppp oject from spatstat
+kma.ppp <- ppp(x = kma$x, y = kma$y, window = window)
+
+##K-FUNCTION 
+#basic k-function
+k.fun <- Kest(kma.ppp, correction = "Ripley")
+plot(k.fun)
+
+#use simulation to test the point pattern against CSR
+k.fun.e <- envelope(kma.ppp, Kest, nsim = 99, correction = "Ripley")
+plot(k.fun.e)
+
+
+###KDe:
+
+kde.100 <- density(kma.ppp, sigma = 150, at = "pixels", eps = c(100, 100))
+kde.SG <- as(kde.100, "SpatialGridDataFrame")
+
+#plot
+x11() #opens a new plot window
+spplot(kde.SG)
+
+#can see how the bandwidth selection influences the density estimates
+summary(kde.SG)
+
+#use cross-validation to get the bandwidth that minimizes MSE
+bw.d <- bw.diggle(kma.ppp)
+#plot the "optimal" bandwidth
+plot(bw.d, ylim=c(-10, 10), main= "Cross Validation Vancouver ")
+
+#density using the cross-validation bandwidth
+PM2.5KDE <- density(kma.ppp, sigma = bw.d, at = "pixels", eps = c(50, 50))
+plot(PM2.5KDE)
+
+kde.100 <- density(kma.ppp,  sigma =  bw.d, at = "pixels", eps = c(50, 50))
+kde.SG <- as(kde.100, "SpatialGridDataFrame")
+test <- raster(kde.SG) 
+crs(test) <- crs(pm2.5)
+testmask   <- mask(test, income.tracts )
+tm_shape(testmask) + tm_raster(n=7,title=" KDE PM2.5 points (points/m^2)") +
+  tm_legend(legend.outside=TRUE)###????
+
+
+
+
+
+
+
+##QUADRAT ANALYSIS
+##First, determine the number of qusdrats ####quadrats not plotting
+quads <- 10
+
+qcount <- quadratcount(kma.ppp, nx = quads, ny = quads)
+
+plot(kma.ppp, pch = "+", cex = 0.5, add = TRUE)
+plot(qcount, add = T, col = "red")
+
+qcount.df <- as.data.frame(qcount)
+
+##Second, count the number of quadrats with a distinct number of points.
+qcount.df <- plyr::count(qcount.df,'Freq')
+
+##Change the column names so that x=number of points and f=frequency of quadrats with x point.
+colnames(qcount.df) <- c("x","f")
+
+
+sum.f.x2 <- sum((qcount.df$f)*((qcount.df$x)^2))
+
+
+M <- 100
+
+N <- sum(kma.ppp$n)
+N <- 483
+
+sum.fx.2 <- sum(((((qcount.df$f)*(qcount.df$x))^2)/M))
+
+
+VAR <- (((sum.f.x2) - (sum.fx.2))/ M-1)
+
+MEAN <- N/M
+
+VMR <- VAR/MEAN
+
+chisq.test(qcount.df)
+chi.square <- VMR*(M)
+pquadrat <-  pchisq(chi.square, df= M - 1, lower.tail=FALSE)
+
+pquadrat = 1 - pchisq(chi.square, (M - 1))
+
+##Finally, perform the test statistic to test for the existence of a random spatial pattern.
+chisq.test(qcount.df)
+chi.square <- VMR*(M)
+p <-  pchisq(chi.square, df= M - 1, lower.tail=FALSE)
+
+p = 1 - pchisq(chi.square, (M - 1))
+
+
+
+
+#########Combining census data
+#These steps will help you combine the outputs 
+#from your spatial interpolation with your income data.
+# Convert your interpolation into a raster and map it:
+New.r <- raster(r.m.idw) ### Use masked version here/ Already rasterized so jsut use r.m.idw
+sufaceMap <- tm_shape(r.idw2) + 
+  tm_raster(n=5,palette = "viridis",
+            title="PM 2.5 \n(in ppm)") +
+  tm_shape(pm2.5) + tm_dots(size=0.2)
+sufaceMap
+
+#use r.idw!!!
+#If you have too many cells, 
+#you can reduce the number by aggregating values
+#agg <- aggregate(yourRasterFromKriging, fact=??, fun=mean)
+
+#Extract average pm2.5 for each polygon
+income.tracts$Pm2.5 <- round(raster::extract(r.idw2, income.tracts, fun = mean)[,1], 5)
+
+income.tractsfix <- income.tracts[!is.na(income.tracts@data$Pm2.5),] # Remove NA'S
+
+####### Regression- use data from above
+
+######Linear Regression##########
+#Let's say your dataset with both PM2.5 and Income 
+#are stored in a dataset called income.tracts.
+#Plot income and PM2.5 from the income.tracts dataset you created
+#Chose Pm2.5 as independant variable
+#Check about No 0's
+plot(income.tractsfix$Income~income.tractsfix$Pm2.5)
+
+#Notice that there are a lot of 0's in this dataset. If you decide to remove them, use the following line:
+income.tracts.no0 <-  income.tracts[which(income.tracts$Pm2.5 > 0), ]
+
+#Now plot the data again
+plot(income.tracts.no0$Income~income.tracts.no0$Pm2.5)
+
+#Perform a linear regression on the two variables. You should decide which one is dependent.
+lm.model <- lm(income.tractsfix$Income~income.tractsfix$Pm2.5)
+#Add the regression model to the plot you created
+plot(income.tractsfix$Income~income.tractsfix$Pm2.5)
+abline(lm.model, col = "red")
+#Get the summary of the results
+summary(lm.model)
+
+
+#add the fitted values to your spatialpolygon dataframe
+income.tractsfix$predictlm <- lm.model$fitted.values  
+##########
+length(income.tractsfix$Pm2.5)#trying to figure out no 0 issue
+view(income.tractsfix@data)
+
+#add the residuals to your spatialpolygon dataframe
+income.tractsfix$residuals <- residuals.lm(lm.model)
+
+#Observe the result to make sure it looks correct
+head(income.tractsfix)
+
+#Now, create choropleth map of residuals
+map_resid <- tm_shape(income.tractsfix) +
+  tm_polygons(col = "residuals",
+              title = "Median Income",
+              style = "fisher",
+               palette = "RdYlGn",auto.palette.mapping=FALSE, midpoint = NA, n=5)+
+  tm_legend(legend.outside=TRUE)
+map_resid
+
+#######Run global morans I for residuals#You want to determine if the model residuals are spatially clustered. 
+##Global Morans I
+
+income.nb2 <- poly2nb(income.tractsfix)
+income.net <- nb2lines(income.nb, coords=coordinates(income.tracts))
+crs(income.net) <- crs(income.tracts)
+
+#Create and print weight matrix object
+
+income.lw2 <- nb2listw(income.nb2, zero.policy = TRUE, style = "W")
+print.listw(income.lw, zero.policy = TRUE)
+
+
+
+regmi <- moran.test(income.tractsfix$residuals, income.lw2, zero.policy = TRUE)
+regmi
+
+
+
+
+####Geographically Weighted Regression
+#Let's say you are continuing with 
+#your data from the regression analysis. 
+#The first thing you need to do is to add the 
+#polygon coordinates to the spatialpolygondataframe.
+#You can obtain the coordinates using the 
+#"coordinates" function from the sp library
+income.tractsfix.coords <- sp::coordinates(income.tractsfix)
+#Observe the result:
+head(income.tractsfix.coords)
+#Now add the coordinates back to the spatialpolygondataframe
+income.tractsfix$X <- income.tractsfix.coords[,1]
+income.tractsfix$Y <- income.tractsfix.coords[,2]
+
+###Determine the bandwidth for GWR: this will take a while
+GWRbandwidth <- gwr.sel(income.tractsfix$Income~income.tractsfix$Pm2.5, 
+                        data=income.tractsfix, coords=cbind(income.tractsfix$X,income.tractsfix$Y),adapt=T) 
+
+###Perform GWR on the two variables with the bandwidth determined above
+###This will take a looooooong while
+gwr.model = gwr(income.tractsfix$Income~income.tractsfix$Pm2.5, 
+                data=income.tractsfix, coords=cbind(income.tractsfix$X,income.tractsfix$Y), 
+                adapt=GWRbandwidth, hatmatrix=TRUE, se.fit=TRUE) 
+
+#Print the results of the model
+gwr.model
+
+#Look at the results in detail
+results<-as.data.frame(gwr.model$SDF)
+head(results)
+
+#Now for the magic. Let's add our local r-square values to the map
+income.tractsfix$localr <- results$localR2
+
+#Create choropleth map of r-square values
+map_r2 <- tm_shape(income.tractsfix) +
+  tm_polygons(col = "localr",
+              title = "R2 values",
+              style = "fixed", breaks = c(-Inf,0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1),
+
+              palette = "RdYlGn",auto.palette.mapping=FALSE, midpoint = NA, n=10)+
+  tm_legend(legend.outside=TRUE)
+map_r2
+
+hist(income.tractsfix$localr, breaks = 10, main = "GWR R2 values distribution across Vancouver BC, 2016", xlab = " R2 value)")
+#Time for more magic. Let's map the coefficients
+income.tractsfix$coeff <- results$income.tractsfix.Pm2.5
+#Create choropleth map of the coefficients
+map_coef <- tm_shape(income.tractsfix) +
+  tm_polygons(col = "coeff",
+              title = "Coefficients",
+              style = "jenks",
+              palette = "viridis", n = 4)
+map_coef
+######With different class breaks
+map_coef2 <- tm_shape(income.tractsfix) +
+  tm_polygons(col = "coeff",
+              title = "Coefficients",
+              style = "fixed", breaks = c(-Inf,-500000, -100000, 0, 100000, 500000, Inf),
+              palette = "RdYlGn",auto.palette.mapping=FALSE, midpoint = NA, n=6)+
+          tm_legend(legend.outside=TRUE)
+map_coef2
+tmap_mode("view")
+tmap_mode("plot")
+####even more class breaks
+map_coef3 <- tm_shape(income.tractsfix) +
+  tm_polygons(col = "coeff",
+              title = "Coefficients",
+              style = "fixed", breaks = c(-Inf,-1000000,-500000, -100000, 0, 100000, 500000,1000000, Inf),
+              palette = "RdYlGn",auto.palette.mapping=FALSE, midpoint = NA, n=6)+
+  tm_legend(legend.outside=TRUE)
+map_coef3
+
+
+  
+  
+  
+  
